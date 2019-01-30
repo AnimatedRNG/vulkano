@@ -126,6 +126,11 @@
 //! Provides the path to the GLSL source to be compiled, relative to `Cargo.toml`.
 //! Cannot be used in conjunction with the `src` field.
 //!
+//! ## `version: "..."`
+//!
+//! This sets the target client environment version. "1.0" corresponds to vulkan1.0,
+//! and "1.1" corresponds to vulkan1.1. The default is "1.0".
+//!
 //! ## `include: ["...", "...", ..., "..."]`
 //!
 //! Specifies the standard include directories to be searched through when using the
@@ -183,6 +188,7 @@ enum SourceKind {
 struct MacroInput {
     shader_kind: ShaderKind,
     source_kind: SourceKind,
+    target_env_version: Option<u32>,
     include_directories: Vec<String>,
     dump: bool,
 }
@@ -192,6 +198,7 @@ impl Parse for MacroInput {
         let mut dump = None;
         let mut shader_kind = None;
         let mut source_kind = None;
+        let mut target_env_version = None;
         let mut include_directories = Vec::new();
 
         while !input.is_empty() {
@@ -215,6 +222,19 @@ impl Parse for MacroInput {
                         _ => panic!("Unexpected shader type, valid values: vertex, fragment, geometry, tess_ctrl, tess_eval, compute")
                     };
                     shader_kind = Some(ty);
+                },
+                "version" => {
+                    if target_env_version.is_some() {
+                        panic!("Only one `version` can be defined")
+                    }
+
+                    let version: LitStr = input.parse()?;
+                    let version = match version.value().as_ref() {
+                        "1.0" => 1u32 << 22,
+                        "1.1" => (1u32 << 22) | (1u32 << 12),
+                        _ => panic!("Unexpected target environment version, valid values: \"1.0\", \"1.1\"")
+                    };
+                    target_env_version = Some(version);
                 }
                 "src" => {
                     if source_kind.is_some() {
@@ -273,7 +293,7 @@ impl Parse for MacroInput {
 
         let dump = dump.unwrap_or(false);
 
-        Ok(MacroInput { shader_kind, source_kind, include_directories, dump })
+        Ok(MacroInput { shader_kind, source_kind, target_env_version, include_directories, dump })
     }
 }
 
@@ -303,6 +323,10 @@ pub fn shader(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
     };
 
-    let content = codegen::compile(path, &source_code, input.shader_kind, &input.include_directories).unwrap();
+    let content = codegen::compile(path,
+                                   &source_code,
+                                   input.shader_kind,
+                                   input.target_env_version,
+                                   &input.include_directories).unwrap();
     codegen::reflect("Shader", content.as_binary(), input.dump).unwrap().into()
 }

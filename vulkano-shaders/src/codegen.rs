@@ -14,7 +14,7 @@ use syn::Ident;
 use proc_macro2::{Span, TokenStream};
 use shaderc::{Compiler, CompileOptions};
 
-pub use shaderc::{CompilationArtifact, ShaderKind, IncludeType, ResolvedInclude};
+pub use shaderc::{CompilationArtifact, ShaderKind, IncludeType, ResolvedInclude, TargetEnv};
 pub use crate::parse::ParseError;
 
 use crate::parse::Instruction;
@@ -129,7 +129,7 @@ fn include_callback(requested_source_path_raw: &str, directive_type: IncludeType
     })
 }
 
-pub fn compile(path: Option<String>, code: &str, ty: ShaderKind, include_directories: &[String]) -> Result<CompilationArtifact, String> {
+pub fn compile(path: Option<String>, code: &str, ty: ShaderKind, version: Option<u32>, include_directories: &[String]) -> Result<CompilationArtifact, String> {
     let mut compiler = Compiler::new().ok_or("failed to create GLSL compiler")?;
     let mut compile_options = CompileOptions::new()
         .ok_or("failed to initialize compile option")?;
@@ -146,6 +146,13 @@ pub fn compile(path: Option<String>, code: &str, ty: ShaderKind, include_directo
         include_callback(requested_source_path, directive_type, contained_within_path,
                          recursion_depth, include_directories, path.is_some())
     });
+
+    match version {
+        Some(version) => {
+            compile_options.set_target_env(TargetEnv::Vulkan, version);
+        },
+        _ => {}
+    };
 
     let content = compiler
         .compile_into_spirv(&code, ty, root_source_path, "main", Some(&compile_options))
@@ -392,7 +399,7 @@ mod tests {
             MyStruct s;
         };
         void main() {}
-        ", ShaderKind::Vertex, &[]).unwrap();
+        ", ShaderKind::Vertex, None, &[]).unwrap();
         let doc = parse::parse_spirv(comp.as_binary()).unwrap();
         let res = std::panic::catch_unwind(|| structs::write_structs(&doc));
         assert!(res.is_err());
@@ -408,7 +415,7 @@ mod tests {
             MyStruct s;
         };
         void main() {}
-        ", ShaderKind::Vertex, &[]).unwrap();
+        ", ShaderKind::Vertex, None, &[]).unwrap();
         let doc = parse::parse_spirv(comp.as_binary()).unwrap();
         structs::write_structs(&doc);
     }
@@ -428,7 +435,7 @@ mod tests {
             MyStruct s;
         };
         void main() {}
-        ", ShaderKind::Vertex, &[]).unwrap();
+        ", ShaderKind::Vertex, None, &[]).unwrap();
         let doc = parse::parse_spirv(comp.as_binary()).unwrap();
         structs::write_structs(&doc);
     }
